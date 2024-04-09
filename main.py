@@ -186,7 +186,7 @@ class ComicHubApp(App):
         extracted_files = os.listdir(temp_dir)
 
         # Filtra os arquivos de imagem
-        image_files = [f for f in extracted_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+        image_files = [f for f in extracted_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.cbr'))]
 
         # Move os arquivos de imagem para o diretório principal
         for image_file in image_files:
