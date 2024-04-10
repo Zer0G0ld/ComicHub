@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import threading
 
 from kivy.app import App
 from kivy.metrics import dp
@@ -15,32 +16,10 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.filechooser import FileChooserListView
 from kivy.uix.progressbar import ProgressBar
 
-class ComicHubApp(App):
-    def build(self):
-        self.layout = BoxLayout(orientation='vertical')
-
-        # Adiciona título ao topo do layout
-        self.title = "ComicHub"
-        title_label = Label(text=self.title, size_hint_y=None, height=dp(100), font_size=40)
-        self.layout.add_widget(title_label)
-
-        self.layout.add_widget(Label(size_hint_y=None, height=dp(20))) # Adiciona espaçamento
-
-        # Adiciona botões para adicionar e visualizar HQs/Mangás
-        buttons_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(50))
-        add_button = Button(text='Adicionar HQ/Mangá', size_hint_x=0.5, font_size=18)
-        add_button.bind(on_press=self.add_hq_manga)
-        view_button = Button(text='Visualizar HQs/Mangás', size_hint_x=0.5, font_size=18)
-        view_button.bind(on_press=self.view_hq_manga)
-        buttons_layout.add_widget(add_button)
-        buttons_layout.add_widget(view_button)
-        self.layout.add_widget(buttons_layout)
-
-        return self.layout
-
-    def add_hq_manga(self, instance):
+class ComicManager:
+    @staticmethod
+    def add_book(repo_dir):
         # Verifica se o diretório 'repo' existe e o cria se não existir
-        repo_dir = os.path.join(os.getcwd(), 'repo')
         if not os.path.exists(repo_dir):
             os.makedirs(repo_dir)
 
@@ -66,61 +45,47 @@ class ComicHubApp(App):
         popup.open()
 
         # Associa o evento de seleção ao manipulador de seleção
-        file_chooser.bind(on_submit=lambda instance, selection, touch: self.select_hq_manga(instance, selection, touch, popup, repo_dir))
+        file_chooser.bind(on_submit=lambda instance, selection, touch: ComicManager.select_hq_manga(instance, selection, touch, popup, repo_dir))
 
-    def select_hq_manga(self, instance, selection, touch, popup, repo_dir):
-        # Verifica se um arquivo foi selecionado e o adiciona à lista de HQs/mangás
-        if selection:
-            # Verifica se o diretório de destino existe e cria se não existir
-            if not os.path.exists(repo_dir):
-                os.makedirs(repo_dir)
 
-            # Calcula a quantidade total de bytes a serem copiados
+    @staticmethod
+    def select_hq_manga(instance, selection, touch, popup, repo_dir):
+        def copy_files():
             total_size = sum(os.path.getsize(file_path) for file_path in selection)
-
-            # Cria uma barra de progresso para acompanhar a cópia dos arquivos
             progress_bar = ProgressBar(max=total_size, size_hint_y=None)
 
-            # Cria uma caixa de mensagem para exibir o progresso e a mensagem de conclusão
             message_box = BoxLayout(orientation='vertical')
-            message_box.add_widget(Label(text="Copiando arquivos..."))
+            message_box.add_widget(Label(text='Copying files...'))
             message_box.add_widget(progress_bar)
 
-            # Exibe a caixa de mensagem em uma janela pop-up
-            message_popup = Popup(title="Progresso", content=message_box, size_hint=(None, None), size=(400, 200))
+            message_popup = Popup(title="Progess", content=message_box, size_hint=(None, None), size=(400, 200))
             message_popup.open()
 
             try:
-                # Copia os arquivos selecionados para o diretório de destino
                 copied_bytes = 0
                 for file_path in selection:
                     shutil.copy(file_path, repo_dir)
                     copied_bytes += os.path.getsize(file_path)
                     progress_bar.value = copied_bytes
-
-                # Exibe a mensagem de conclusão após a cópia bem-sucedida
+                
                 message_box.clear_widgets()
-                message_box.add_widget(Label(text="Arquivos copiados com sucesso para o diretório 'repo'!"))
+                message_box.add_widget(Label(text="Files copied sucessfully to 'repo' directory!"))
             except Exception as e:
-                # Exibe a mensagem de erro em caso de falha na cópia
                 message_box.clear_widgets()
-                message_box.add_widget(Label(text=f"Erro ao copiar os arquivos: {e}"))
+                message_box.add_widget(Label(text=f"Error copying files: {e}"))
 
-            # Fecha a janela pop-up após um breve atraso
             App.get_running_app().root_window.after(2, message_popup.dismiss)
+            popup.dismiss() # Fecha a janela pop-up de seleção de arquivo após a cópia
 
-            # Fecha a janela pop-up de seleção de arquivo após a cópia
-            popup.dismiss()
-
-    def view_hq_manga(self, instance):
+        threading.Thread(target=copy_files).start()
+    
+    @staticmethod
+    def view_book(layout):
         # Verifica se há arquivos no diretório 'repo'
         repo_dir = os.path.join(os.getcwd(), 'repo')
         if not os.path.exists(repo_dir) or not os.listdir(repo_dir):
             print("Nenhum HQ/Mangá encontrado para visualização.")
             return
-
-        # Limpa os widgets atuais
-        self.layout.clear_widgets()
 
         # Obtém a lista de arquivos no diretório 'repo'
         files = os.listdir(repo_dir)
@@ -130,7 +95,7 @@ class ComicHubApp(App):
         for file in files:
             if file.lower().endswith('.cbr'):
                 # Extrai imagens do arquivo .cbr
-                extracted_images = self.extract_images_from_cbr(repo_dir, file)
+                extracted_images = ComicManager.extract_images_from_cbr(repo_dir, file)
                 if extracted_images:
                     image_files.extend(extracted_images)
 
@@ -138,6 +103,9 @@ class ComicHubApp(App):
         if not image_files:
             print("Nenhum arquivo de imagem encontrado para visualização.")
             return
+
+        # Limpa os widgets atuais
+        layout.clear_widgets()
 
         # Cria um GridLayout para organizar as imagens em uma grade
         grid_layout = GridLayout(cols=3, spacing=10, size_hint_y=None)
@@ -152,15 +120,32 @@ class ComicHubApp(App):
 
             # Adiciona um botão "Adicionar" para cada imagem
             add_button = Button(text='Adicionar', size_hint_y=None, height=dp(50))
-            add_button.bind(on_press=lambda instance: self.add_selected_file(file_name, repo_dir))
+            add_button.bind(on_press=lambda instance: ComicManager.add_hq_manga(file_name, repo_dir))
             grid_layout.add_widget(add_button)
 
         # Adiciona a grade a um ScrollView para permitir rolagem vertical
         scroll_view = ScrollView(size_hint=(1, None), size=(Window.width, Window.height))
         scroll_view.add_widget(grid_layout)
-        self.layout.add_widget(scroll_view)
 
-    def add_selected_file(self, file_name, repo_dir):
+        # Adiciona botões de navegação
+        navigation_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(50))
+        previous_button = Button(text='Página Anterior', size_hint_x=0.5)
+        next_button = Button(text='Próxima Página', size_hint_x=0.5)
+        navigation_layout.add_widget(previous_button)
+        navigation_layout.add_widget(next_button)
+        grid_layout.add_widget(navigation_layout)
+
+        layout.add_widget(scroll_view)
+
+
+    @staticmethod
+    def add_hq_manga(file_name, repo_dir):
+        # Verifica se o arquivo já existe no diretório de destino
+        destination_file = os.path.join(repo_dir, file_name)
+        if os.path.exists(destination_file):
+            print(f'O arquivo "{file_name}" já existe no diretório de destino.')
+            return
+
         # Copia o arquivo selecionado para o diretório de destino
         selected_file = os.path.join(repo_dir, file_name)
         try:
@@ -169,7 +154,9 @@ class ComicHubApp(App):
         except Exception as e:
             print(f'Erro ao adicionar o arquivo "{file_name}": {e}')
 
-    def extract_images_from_cbr(self, directory, cbr_file):
+
+    @staticmethod
+    def extract_images_from_cbr(directory, cbr_file):
         # Cria um diretório temporário para extrair as imagens
         temp_dir = os.path.join(directory, 'temp')
         if not os.path.exists(temp_dir):
@@ -196,6 +183,29 @@ class ComicHubApp(App):
         shutil.rmtree(temp_dir)
 
         return image_files
+
+class ComicHubApp(App):
+    def build(self):
+        self.layout = BoxLayout(orientation='vertical')
+
+        # Adiciona título ao topo do layout
+        self.title = "ComicHub"
+        title_label = Label(text=self.title, size_hint_y=None, height=dp(100), font_size=40)
+        self.layout.add_widget(title_label)
+
+        self.layout.add_widget(Label(size_hint_y=None, height=dp(20))) # Adiciona espaçamento
+
+        # Adiciona botões para adicionar e visualizar HQs/Mangás
+        buttons_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(50))
+        add_button = Button(text='Adicionar Livro', size_hint_x=0.5, font_size=18)
+        add_button.bind(on_press=lambda instance: ComicManager.add_book(os.path.join(os.getcwd(), 'repo')))
+        view_button = Button(text='Visualizar Livro', size_hint_x=0.5, font_size=18)
+        view_button.bind(on_press=lambda instance: ComicManager.view_book(self.layout))
+        buttons_layout.add_widget(add_button)
+        buttons_layout.add_widget(view_button)
+        self.layout.add_widget(buttons_layout)
+
+        return self.layout
 
 if __name__ == '__main__':
     ComicHubApp().run()
